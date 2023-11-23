@@ -1,0 +1,250 @@
+#include<dos.h>
+#include <conio.h>
+#include <stdio.h>
+#include <emurtk.h>
+#include <iostream.h>
+
+int position[4]={0,0,0,0};
+int direction[4];
+unsigned char DRV0, DRV1;
+char sns0,sns1,sns2;
+int startSNS[4] ={1,1,1,1};
+int endSNS[4]={1,1,1,1};
+int pulseSNS[4]={1,1,1,1};
+int old_pulseSNS[4]={1,1,1,1};
+int choice = 0;
+char key;
+
+void WriteRC(unsigned char DATA)
+{
+outportb(0x37A, 0x04);
+outportb(0x0378, DATA);
+outportb(0x037A, 0x00);
+delay(5);
+outportb(0x37A, 0x04);
+}
+
+void WriteRD(char DATA)
+{
+outportb(0x37A, 0x04);
+outportb(0x37A, 0x0E);
+outportb(0x378, DATA);
+outportb(0x37A, 0x0A);
+delay(5);
+outportb(0x37A, 0x0E);
+}
+
+unsigned char ReadRD()
+{
+static char ans=0;
+outportb( 0x37A, 0x04 );
+outportb( 0x378, 0xFF );
+outportb( 0x37A, 0x2F );
+delay(5);
+ans = inportb( 0x378 );
+return( ans );
+}
+
+void ctrlMTR(unsigned char DRV0, unsigned char DRV1)
+{
+WriteRC(0x11);
+WriteRD(DRV1);
+WriteRD(DRV0);
+}
+
+void readSNS()
+{
+WriteRC(0x13);
+sns0 = ReadRD();
+sns1 = ReadRD();
+sns2 = ReadRD();
+}
+
+void startMTR(int numMTR, int direction)
+{
+if(direction==-1)
+  {
+  DRV0 |= 0x01<<(numMTR*2);
+  ctrlMTR(DRV0,0x80);
+  }
+if(direction==1)
+  {
+  DRV0 |= 0x01<<(numMTR*2+1);
+  ctrlMTR(DRV0,0x80);
+  }
+}
+void stopMTR(int numMTR){
+DRV0&= ~(0x03<<(numMTR*2));
+ctrlMTR(DRV0,0x80);
+}
+
+void transSNSdata()
+{
+startSNS[0]= sns0 &0x01;
+startSNS[1]= (sns0>>3)&0x01;
+startSNS[2]= sns1 & 0x01;
+startSNS[3]= (sns1>>3)&0x01;
+endSNS[0] = (sns0>>1)&0x01;
+endSNS[1] = (sns0>>4)&0x01;
+endSNS[2] = (sns1>>1)&0x01;
+endSNS[3] = (sns1>>4)&0x01;
+old_pulseSNS[0] = pulseSNS[0];
+pulseSNS[0] = (sns0>>2)&0x01;
+old_pulseSNS[1] = pulseSNS[1];
+pulseSNS[1] = (sns0>>5)&0x01;
+old_pulseSNS[2] = pulseSNS[2];
+pulseSNS[2] = (sns1>>2)&0x01;
+old_pulseSNS[3] = pulseSNS[3];
+pulseSNS[3] = (sns1>>5)&0x01;
+for(int i = 0;i < 4;i++ )
+ {       
+   if(pulseSNS[i] != old_pulseSNS[i])
+   position[i] += 1;      
+ } 
+}
+
+void Allcalibrate()
+{
+readSNS();
+transSNSdata();
+while ( startSNS[0] || startSNS[1] || endSNS[2]  || endSNS[3] )
+ {
+  readSNS();
+  transSNSdata(); 
+  startSNS[0] ?   startMTR(0, -1) :stopMTR(0);
+  startSNS[1] ?   startMTR(1, -1) :stopMTR(1);
+  endSNS[2] ?    startMTR(2, 1) : stopMTR(2);
+  endSNS[3] ?    startMTR(3, 1) : stopMTR(3);
+ }
+clrscr();
+printf("Калибровка завершена");
+}
+
+void gotoPoint(int numMTR, int targetPos)
+{
+ if(position[numMTR] < targetPos)
+ {
+   direction[numMTR] = -1;
+   startMTR(numMTR, direction[numMTR]);
+  }
+if(position[numMTR] == targetPos)
+ {
+   direction[numMTR] = 0;
+   stopMTR(numMTR);
+   stopMTR(numMTR);
+  }
+}
+
+void move(int numMTR, int targetPos)
+{
+gotoPoint(numMTR,targetPos);
+while(direction[numMTR]!=0)
+ {
+  readSNS();
+  transSNSdata();
+  gotoPoint(numMTR,targetPos);
+ }
+}
+
+void cikl()
+{
+clrscr();
+int x=0;
+int c=0;
+printf("\n Введите кол-во циклов : ");
+scanf("%d", &x);
+while(c!=x){
+ position[3]=0;
+ while(position[3]!=77)
+  {
+   move(3,77);
+   readSNS();
+   transSNSdata();
+   }
+ stopMTR(3);
+ startMTR(1,1);
+ while(endSNS[1]!=0)
+   {
+    readSNS();
+    transSNSdata();
+    startMTR(1,1);
+   }
+ stopMTR(1);
+ startMTR(3,1);
+ while(endSNS[3]!=0)
+   {
+    readSNS();
+    transSNSdata();
+    startMTR(3,1);
+   }
+ stopMTR(3);
+ startMTR(1,-1);
+ while(startSNS[1]!=0)
+  {
+   readSNS();
+   transSNSdata();
+   startMTR(1,-1);
+   }
+ stopMTR(1);
+ c++;
+ }
+clrscr();
+printf("\n Конец работы ");
+}
+
+void podschetM2()
+{
+position[3]=0;
+startMTR(3,-1);
+while(startSNS[3]!=0)
+ {
+  readSNS();
+  transSNSdata();
+  startMTR(3,-1);
+ }
+stopMTR(3);
+clrscr();
+cout<<"Кол-во пройденных меток M2 ="<<position[3];
+}
+
+void podschetM1()
+{
+position[1]=0;
+startMTR(1,1);
+while(endSNS[1]!=0)
+ {
+  readSNS();
+  transSNSdata();
+  startMTR(1,1);
+ }
+stopMTR(1);
+clrscr();
+cout<<"Кол-во пройденных меток M1 ="<<position[1];
+}
+
+void main()
+{
+readSNS();
+transSNSdata(); 
+while(choice !=27)
+ {
+ printf("\n %s", "1 - Цикл");
+ printf("\n %s", "2 - Калибровка");
+ choice = getch();
+ switch(choice)
+  {
+   case 49:
+     cikl();
+     break;
+   case 50:
+     Allcalibrate();
+     break;
+   case 51:
+     podschetM2();
+     break;
+   case 52:
+     podschetM1();
+     break;
+   }
+ }
+}
